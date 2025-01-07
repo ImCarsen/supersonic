@@ -7,10 +7,12 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/dweymouth/supersonic/backend/discord"
 	"github.com/dweymouth/supersonic/backend/mediaprovider"
 	"github.com/dweymouth/supersonic/backend/player"
 	"github.com/dweymouth/supersonic/backend/util"
 	"github.com/dweymouth/supersonic/sharedutil"
+	"github.com/hugolgst/rich-go/client"
 )
 
 var (
@@ -72,6 +74,8 @@ type playbackEngine struct {
 	onPlaying        []func()
 	onPlayerChange   []func()
 	onQueueChange    []func()
+
+	rpc *discord.RPC
 }
 
 func NewPlaybackEngine(
@@ -118,6 +122,51 @@ func NewPlaybackEngine(
 
 	s.OnLogout(func() {
 		pm.StopAndClearPlayQueue()
+	})
+
+	pm.rpc = &discord.RPC{}
+	pm.rpc.Login()
+
+	// Discord RPC
+	p.OnTrackChange(func() {
+		now := time.Now()
+		playing := pm.playQueue[pm.nowPlayingIdx]
+		end := now.Add(time.Duration(pm.curTrackDuration) * time.Second)
+		pm.rpc.SetActivity(client.Activity{
+			Details: "Listening to " + playing.Metadata().Name,
+			Timestamps: &client.Timestamps{
+				Start: &now,
+				End:   &end,
+			},
+		})
+	})
+	p.OnSeek(func() {
+		playing := pm.playQueue[pm.nowPlayingIdx]
+		end := pm.rpc.Current.Timestamps.Start.Add(time.Duration(pm.curTrackDuration-p.GetStatus().TimePos) * time.Second)
+		pm.rpc.SetActivity(client.Activity{
+			Details: "Listening to " + playing.Metadata().Name,
+			Timestamps: &client.Timestamps{
+				Start: pm.rpc.Current.Timestamps.Start,
+				End:   &end,
+			},
+		})
+	})
+	p.OnStopped(func() {
+		pm.rpc.SetActivity(client.Activity{})
+	})
+	p.OnPaused(func() {
+		pm.rpc.SetActivity(client.Activity{})
+	})
+	p.OnPlaying(func() {
+		playing := pm.playQueue[pm.nowPlayingIdx]
+		end := pm.rpc.Current.Timestamps.Start.Add(time.Duration(pm.curTrackDuration-p.GetStatus().TimePos) * time.Second)
+		pm.rpc.SetActivity(client.Activity{
+			Details: "Listening to " + playing.Metadata().Name,
+			Timestamps: &client.Timestamps{
+				Start: pm.rpc.Current.Timestamps.Start,
+				End:   &end,
+			},
+		})
 	})
 
 	return pm
